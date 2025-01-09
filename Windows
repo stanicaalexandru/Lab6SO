@@ -1,0 +1,91 @@
+// Windows version
+#include <iostream>
+#include <vector>
+#include <cmath>
+#include <windows.h>
+
+bool isPrime(int n) {
+    if (n < 2) return false;
+    for (int i = 2; i <= std::sqrt(n); ++i) {
+        if (n % i == 0) return false;
+    }
+    return true;
+}
+
+struct PipeData {
+    HANDLE readHandle;
+    HANDLE writeHandle;
+};
+
+DWORD WINAPI processPrimes(LPVOID param) {
+    PipeData* pipeData = (PipeData*)param;
+    CloseHandle(pipeData->readHandle);
+
+    int start = 0, end = 0;
+    ReadFile(pipeData->writeHandle, &start, sizeof(start), nullptr, nullptr);
+    ReadFile(pipeData->writeHandle, &end, sizeof(end), nullptr, nullptr);
+
+    std::vector<int> primes;
+    for (int num = start; num <= end; ++num) {
+        if (isPrime(num)) {
+            primes.push_back(num);
+        }
+    }
+
+    for (int prime : primes) {
+        WriteFile(pipeData->writeHandle, &prime, sizeof(prime), nullptr, nullptr);
+    }
+
+    CloseHandle(pipeData->writeHandle);
+    return 0;
+}
+
+int main() {
+    const int NUM_PROCESSES = 10;
+    const int INTERVAL = 1000;
+    const int MAX_NUMBER = 10000;
+
+    PipeData pipes[NUM_PROCESSES];
+    HANDLE threads[NUM_PROCESSES];
+
+    for (int i = 0; i < NUM_PROCESSES; ++i) {
+        HANDLE readPipe, writePipe;
+        SECURITY_ATTRIBUTES sa = {sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+
+        if (!CreatePipe(&readPipe, &writePipe, &sa, 0)) {
+            std::cerr << "Error creating pipe" << std::endl;
+            return 1;
+        }
+
+        pipes[i] = {readPipe, writePipe};
+        threads[i] = CreateThread(
+            nullptr, 0, processPrimes, &pipes[i], 0, nullptr
+        );
+
+        if (!threads[i]) {
+            std::cerr << "Error creating thread" << std::endl;
+            return 1;
+        }
+
+        int start = i * INTERVAL + 1;
+        int end = std::min(start + INTERVAL - 1, MAX_NUMBER);
+        WriteFile(writePipe, &start, sizeof(start), nullptr, nullptr);
+        WriteFile(writePipe, &end, sizeof(end), nullptr, nullptr);
+        CloseHandle(writePipe); 
+    }
+
+    for (int i = 0; i < NUM_PROCESSES; ++i) {
+        int prime;
+        while (ReadFile(pipes[i].readHandle, &prime, sizeof(prime), nullptr, nullptr)) {
+            std::cout << "Thread " << i << " found prime: " << prime << std::endl;
+        }
+        CloseHandle(pipes[i].readHandle);
+    }
+
+    WaitForMultipleObjects(NUM_PROCESSES, threads, TRUE, INFINITE);
+    for (int i = 0; i < NUM_PROCESSES; ++i) {
+        CloseHandle(threads[i]);
+    }
+
+    return 0;
+}
