@@ -1,1 +1,77 @@
+// Linux/Mac version
+#include <iostream>
+#include <vector>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <cmath>
+
+bool isPrime(int n) {
+    if (n < 2) return false;
+    for (int i = 2; i <= std::sqrt(n); ++i) {
+        if (n % i == 0) return false;
+    }
+    return true;
+}
+
+int main() {
+    const int NUM_PROCESSES = 10;
+    const int INTERVAL = 1000;
+    const int MAX_NUMBER = 10000;
+
+    int pipes[NUM_PROCESSES][2];
+    pid_t pids[NUM_PROCESSES];
+
+  
+    for (int i = 0; i < NUM_PROCESSES; ++i) {
+        if (pipe(pipes[i]) == -1) {
+            perror("pipe");
+            return 1;
+        }
+
+        pids[i] = fork();
+        if (pids[i] == -1) {
+            perror("fork");
+            return 1;
+        }
+
+        if (pids[i] == 0) { 
+            close(pipes[i][0]);
+
+            int start = i * INTERVAL + 1;
+            int end = std::min(start + INTERVAL - 1, MAX_NUMBER);
+
+            std::vector<int> primes;
+            for (int num = start; num <= end; ++num) {
+                if (isPrime(num)) {
+                    primes.push_back(num);
+                }
+            }
+
+            for (int prime : primes) {
+                write(pipes[i][1], &prime, sizeof(prime));
+            }
+
+            close(pipes[i][1]);
+            return 0;
+        } else { 
+            close(pipes[i][1]); 
+        }
+    }
+
+    
+    for (int i = 0; i < NUM_PROCESSES; ++i) {
+        int prime;
+        while (read(pipes[i][0], &prime, sizeof(prime)) > 0) {
+            std::cout << "Process " << i << " found prime: " << prime << std::endl;
+        }
+        close(pipes[i][0]); // Close read end
+    }
+
+  
+    for (int i = 0; i < NUM_PROCESSES; ++i) {
+        waitpid(pids[i], nullptr, 0);
+    }
+
+    return 0;
+}
 
